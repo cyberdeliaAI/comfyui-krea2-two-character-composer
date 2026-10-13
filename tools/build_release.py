@@ -10,7 +10,7 @@ destination = root / "dist" / f"comfyui-krea2-two-character-composer-{version}.z
 destination.parent.mkdir(exist_ok=True)
 files = [root / name for name in ("__init__.py", "composer.py", "prompting.py", "negpip_bridge.py",
                                   "pyproject.toml", "LICENSE", "README.md", "CHANGELOG.md")]
-for directory in ("web", "engine", "example_workflows", "docs"):
+for directory in ("web", "engine", "example_workflows"):
     files.extend(path for path in (root / directory).rglob("*")
                  if path.is_file() and "__pycache__" not in path.parts)
 with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:

@@ -7,7 +7,6 @@ The node shows a live layout preview and relabels its fields to match the chosen
 Optional **negative prompts** work at CFG 1 through the
 [NegPiP Prompt](https://github.com/cyberdeliaAI/comfyui-negpip-zimage) pack.
 
-**[Nederlandse handleiding](docs/HANDLEIDING.md)** ·
 **[Download 0.4.5](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/releases/tag/v0.4.5)** ·
 **[Example workflow](example_workflows/two_characters.json)**
 

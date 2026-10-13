@@ -1,5 +1,12 @@
 # Krea2 Two Character Composer
 
+<p align="center">
+  <img src="assets/icon.png" alt="Krea2 Two Character Composer icon" width="200">
+</p>
+
+[![Tests](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/actions/workflows/tests.yml/badge.svg)](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A single ComfyUI node that puts **two characters, each with their own LoRA**, into one Krea 2 image.
 Split the image left/right or top/bottom, drag two free boxes, or connect your own masks.
 The node shows a live layout preview and relabels its fields to match the chosen layout.

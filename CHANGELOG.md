@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.6
 
 ### Fixed
 - A character LoRA that has no layer in the Krea 2 model, such as an SDXL or Z-Image

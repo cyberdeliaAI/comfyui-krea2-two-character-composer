@@ -93,8 +93,10 @@ class WrapperTests(unittest.TestCase):
                 with self.subTest(strength=strength, roles=roles, batch=batch):
                     dm, _, patched, positive = build(loras=False, base_strength=strength)
                     bundle = patched.model_options["transformer_options"][regional.BUNDLE_KEY]
-                    first = torch.zeros(H, W); first[:, :32] = 1
-                    second = torch.zeros(H, W); second[:, 96:] = 1
+                    first = torch.zeros(H, W)
+                    first[:, :32] = 1
+                    second = torch.zeros(H, W)
+                    second[:, 96:] = 1
                     bundle["masks"] = [first, second]
                     captured = []
                     dm.inside = lambda ctx, to: captured.append(capture_mask(to, 12 + IMGLEN, batch))

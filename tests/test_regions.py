@@ -40,7 +40,8 @@ class RegionTests(unittest.TestCase):
                                   (None, None), 128, 96, 16)
 
     def test_mask_input_replaces_only_its_character(self):
-        replacement = torch.zeros(96, 128); replacement[:32, :32] = 1
+        replacement = torch.zeros(96, 128)
+        replacement[:32, :32] = 1
         masks, report = composer.region_masks("Left / Right", 50, prompting.DEFAULT_BOXES,
                                               (replacement, None), 128, 96, 16)
         torch.testing.assert_close(masks[0], replacement)
@@ -48,22 +49,27 @@ class RegionTests(unittest.TestCase):
         self.assertIn("Character 1 from its mask input", report)
 
     def test_mask_batch_and_supported_singleton_shapes_use_first(self):
-        first = torch.zeros(32, 32); first[:, :16] = 1
+        first = torch.zeros(32, 32)
+        first[:, :16] = 1
         batch = torch.stack([first, 1 - first])
         for shaped in (first, batch, batch[:, None], batch[..., None]):
             with self.subTest(shape=tuple(shaped.shape)):
                 torch.testing.assert_close(composer.input_mask(shaped, 32, 32), first)
 
     def test_too_thin_faint_and_empty_masks_fail_on_token_grid(self):
-        first = torch.zeros(96, 128); first[:, :32] = 1
-        thin = torch.zeros(96, 128); thin[:, 100:101] = 1
+        first = torch.zeros(96, 128)
+        first[:, :32] = 1
+        thin = torch.zeros(96, 128)
+        thin[:, 100:101] = 1
         for bad in (thin, torch.full_like(first, 0.4), torch.zeros_like(first)):
             with self.subTest(maximum=bad.max().item()), self.assertRaisesRegex(ValueError, "empty or too thin"):
                 composer.check_token_coverage([first, bad], 128, 96, 16)
 
     def test_mask_centroids_determine_actual_order(self):
-        first = torch.zeros(96, 128); first[:, 96:] = 1
-        second = torch.zeros(96, 128); second[:, :32] = 1
+        first = torch.zeros(96, 128)
+        first[:, 96:] = 1
+        second = torch.zeros(96, 128)
+        second[:, :32] = 1
         sides = prompting.relative_sides(composer.centroid(first), composer.centroid(second))
         self.assertEqual(sides, ("On the right side of the image", "On the left side of the image"))
 

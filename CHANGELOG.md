@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- A character LoRA that has no layer in the Krea 2 model, such as an SDXL or Z-Image
+  LoRA, is now an error that names the character. Before, composing succeeded with only
+  a log line, the image came out without that character's LoRA and the `prompts` report
+  still listed it. LoRAs that match some layers still load; skipped keys are logged.
+
 ## 0.4.5
 
 ### Metadata

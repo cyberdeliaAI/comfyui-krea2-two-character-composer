@@ -5,6 +5,7 @@ import math
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -186,6 +187,21 @@ class ComposerTests(unittest.TestCase):
         self.assertEqual(metadata["negative_prompt"], "blurry")
         self.assertTrue(metadata["negpip"])
         self.assertNotEqual(metadata["scene_prompt"], metadata["encoded_scene_prompt"])
+
+    def test_lora_of_another_model_is_an_error_not_a_silent_skip(self):
+        # An SDXL or Z-Image LoRA has no key that fits a Krea 2 layer. Composing used to
+        # succeed with a log line while the prompts report still listed the LoRA.
+        foreign = {"lora_unet_input_blocks_1_1_proj_in.lora_down.weight": torch.zeros(2, 8),
+                   "lora_unet_input_blocks_1_1_proj_in.lora_up.weight": torch.zeros(8, 2)}
+        with patch.object(sys.modules["comfy.utils"], "load_torch_file", return_value=foreign):
+            with self.assertRaisesRegex(ValueError, r"Character 1: LoRA 'characters/a.safetensors'.*Krea 2"):
+                self.compose()
+            composer._LORA_CACHE.clear()
+            with self.assertRaisesRegex(ValueError, r"Character 2: LoRA 'b.safetensors'"):
+                self.compose(character_1_lora="None")
+        # no LoRA selected (or strength 0) never reaches the check
+        self.compose(character_1_lora="None", character_2_lora="None")
+        self.compose(character_1_strength=0, character_2_strength=0)
 
     def test_strong_and_none_loras(self):
         model, *_ = self.compose(separation="Strong", character_1_lora="None", character_2_strength=0)

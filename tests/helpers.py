@@ -120,7 +120,7 @@ def install_comfy_stubs():
 
     def load_torch_file(path, safe_load=False):
         utils.loaded.append(path)
-        return {"fixture": path}
+        return matching_lora()
 
     utils.load_torch_file = load_torch_file
     mm = types.ModuleType("comfy.model_management")
@@ -195,7 +195,7 @@ class FakePatcher:
 
     def __init__(self, dm=None):
         self.model = Krea2()
-        self.dm = dm or FakeDM()
+        self.dm = dm or layered_dm()
         self.model_options = {"transformer_options": {}}
         self.wrappers = {}
         self.object_patches = {}
@@ -270,6 +270,32 @@ class FakeDM(torch.nn.Module):
         wrappers = pe.get_all_wrappers(pe.WrappersMP.DIFFUSION_MODEL, to)
         return pe.WrapperExecutor.new_class_executor(self._forward, self, wrappers).execute(
             x, timesteps, context, None, None, to)
+
+
+LORA_LAYER = "blocks.0.attn.wv"
+
+
+class _Block(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.attn = torch.nn.Module()
+        self.attn.wv = torch.nn.Linear(8, 8, bias=False)
+
+
+def layered_dm():
+    """A FakeDM with the one layer that matching_lora() targets."""
+    dm = FakeDM()
+    dm.blocks.append(_Block())
+    return dm
+
+
+def matching_lora(rank=2):
+    """A LoRA state dict that fits layered_dm(). Without a matching layer the
+    composer refuses the LoRA, as it should for a LoRA of another model."""
+    return {
+        f"diffusion_model.{LORA_LAYER}.lora_A.weight": torch.zeros(rank, 8),
+        f"diffusion_model.{LORA_LAYER}.lora_B.weight": torch.zeros(8, rank),
+    }
 
 
 class FakeClip:

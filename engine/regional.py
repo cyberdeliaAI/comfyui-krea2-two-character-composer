@@ -823,8 +823,13 @@ def apply_regional(model, base, regions, *, restrict_img_attn,
             logging.info("%s region %d lora '%s': %d layers", LOG, ridx,
                          entry["label"], n)
             if n == 0:
-                logging.warning("%s lora '%s' patched no layers; is it a "
-                                "Krea 2 LoRA?", LOG, entry["label"])
+                # Nothing would change in this character's image, and a log line is
+                # easy to miss while the prompts report still lists the LoRA.
+                raise ValueError(
+                    f"{LOG} Character {ridx + 1}: LoRA '{entry['label']}' has no layer "
+                    "that can be applied to one region, so it would change nothing. "
+                    "Choose a Krea 2 LoRA: LoRAs for other models don't match, and "
+                    "LoRAs that only train timestep layers can't be limited to a region.")
             lora_specs.append({"uid": uid, "weight": 1.0, "seg": ridx + 1,
                                "mask_idx": ridx})
 

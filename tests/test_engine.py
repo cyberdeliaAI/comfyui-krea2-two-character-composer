@@ -249,6 +249,26 @@ class WrapperTests(unittest.TestCase):
         dm.run(patched, torch.zeros(2, 16, 12, 16), torch.tensor([1.0, 1.0]), context,
                cond_or_uncond=(0, 1))
 
+    def test_lora_without_a_matching_layer_is_an_error_naming_the_character(self):
+        dm = helpers.FakeDM()
+        dm.blocks.append(Block())
+        left, right = half_masks()
+        base = {"cond": chunk(5), "extra": {}, "sidecar": 0}
+
+        def regions(second):
+            return [{"cond": chunk(3), "sidecar": 0, "mask": left,
+                     "loras": [{"sd": lora(), "strength": 1.0, "label": "fits"}]},
+                    {"cond": chunk(4), "sidecar": 0, "mask": right,
+                     "loras": [{"sd": second, "strength": 1.0, "label": "other-model"}]}]
+
+        foreign = {"diffusion_model.layers.3.attention.qkv.lora_A.weight": torch.zeros(2, 8),
+                   "diffusion_model.layers.3.attention.qkv.lora_B.weight": torch.zeros(8, 2)}
+        for sd in (foreign, {}):
+            with self.subTest(keys=len(sd)), self.assertRaisesRegex(ValueError, r"Character 2: LoRA 'other-model'"):
+                regional.apply_regional(helpers.FakePatcher(dm), base, regions(sd), restrict_img_attn=False)
+        # a LoRA that fits is still accepted
+        regional.apply_regional(helpers.FakePatcher(dm), base, regions(lora()), restrict_img_attn=False)
+
     def test_other_lengths_pass_through_untouched(self):
         dm, _, patched, _ = build()
         dm.run(patched, torch.zeros(1, 16, 12, 16), torch.tensor([1.0]), torch.zeros(1, 7, 8))

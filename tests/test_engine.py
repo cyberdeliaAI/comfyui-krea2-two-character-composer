@@ -173,9 +173,9 @@ class WrapperTests(unittest.TestCase):
             # Balanced: image tokens see each other
             self.assertTrue(allowed[img, img].all())
             # LoRA delta only on its own prompt and image tokens
-            layer = patched.object_patches["diffusion_model.blocks.0.attn.wv"]
+            layer = dm.blocks[0].attn.wv
             x = torch.ones(1, L, 8)
-            delta = (layer(x) - dm.blocks[0].attn.wv(x)).abs().sum(-1)[0]
+            delta = (layer(x) - torch.nn.functional.linear(x, layer.weight)).abs().sum(-1)[0]
             touched = delta > 0
             self.assertTrue(touched[5:12].all())
             self.assertFalse(touched[0:5].any())
@@ -198,7 +198,7 @@ class WrapperTests(unittest.TestCase):
     def test_token_selections_survive_copied_options_and_attention_phase_changes(self):
         from unittest.mock import patch
         dm, _, patched, positive = build(separation="Strong")
-        layer = patched.object_patches["diffusion_model.blocks.0.attn.wv"]
+        layer = dm.blocks[0].attn.wv
         dm.inside = lambda ctx, to: layer(torch.ones(1, 12 + IMGLEN, 8))
         with patch.object(regional.torch, "nonzero", wraps=torch.nonzero) as find:
             for sigma in (1.0, .2, .1):
@@ -208,14 +208,14 @@ class WrapperTests(unittest.TestCase):
 
     def test_adapter_selections_rebuild_for_mixed_batch_and_geometry(self):
         dm, _, patched, positive = build()
-        layer = patched.object_patches["diffusion_model.blocks.0.attn.wv"]
+        layer = dm.blocks[0].attn.wv
         for batch, h, w, roles in ((1, 12, 16, (0,)), (2, 12, 16, (0, 1)), (2, 16, 12, (1, 0))):
             with self.subTest(batch=batch, geometry=(h, w), roles=roles):
                 length = 12 + (h // 2) * (w // 2)
                 def inside(ctx, to):
                     x = torch.ones(batch, length, 8)
                     output = layer(x)
-                    base = dm.blocks[0].attn.wv(x)
+                    base = torch.nn.functional.linear(x, layer.weight)
                     for row, role in enumerate(roles):
                         if role == 1:
                             self.assertTrue(torch.equal(output[row], base[row]))

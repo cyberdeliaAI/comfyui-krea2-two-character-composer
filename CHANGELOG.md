@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.7
+
+### Fixed
+- Reuse model layer objects across Composer executions instead of installing new
+  copies, avoiding duplicate per-module state with ComfyUI Dynamic VRAM.
+- Keep regional adapter settings and device casts with their own Composer output.
+  Release device casts and runtime masks on sampling cleanup or when another
+  Composer cache becomes active; rebuild them on cache reuse.
+- Correct the skipped timestep-layer log message: the Composer intentionally skips
+  these global layers and has no Apply Regional setting to enable them.
+
+### Validation
+- Added regressions for module identity, cleanup and cache reuse, alternating
+  cached models, character strengths, ordinary model calls and error recovery.
+- Added an optional CUDA test for releasing device tensor references. CPU tests
+  do not establish end-to-end CUDA speed or Dynamic VRAM memory savings.
+- Based on the memory-lifecycle fix contributed in [issue #1](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/issues/1).
+
 ## 0.4.6
 
 ### Fixed

@@ -43,6 +43,9 @@ def _patcher_extension():
         DIFFUSION_MODEL = "diffusion_model"
         CALC_COND_BATCH = "calc_cond_batch"
 
+    class CallbacksMP:
+        ON_CLEANUP = "on_cleanup"
+
     def add_wrapper_with_key(kind, key, wrapper, options, is_model_options=False):
         if is_model_options:
             options = options.setdefault("transformer_options", {})
@@ -96,6 +99,7 @@ def _patcher_extension():
             return cls(original, class_obj, wrappers, idx)
 
     module.WrappersMP = WrappersMP
+    module.CallbacksMP = CallbacksMP
     module.add_wrapper_with_key = add_wrapper_with_key
     module.get_all_wrappers = get_all_wrappers
     module.merge_nested_dicts = merge_nested_dicts
@@ -198,6 +202,7 @@ class FakePatcher:
         self.dm = dm or layered_dm()
         self.model_options = {"transformer_options": {}}
         self.wrappers = {}
+        self.callbacks = {}
         self.object_patches = {}
 
     def clone(self):
@@ -206,7 +211,16 @@ class FakePatcher:
         n.model_options = copy.deepcopy(self.model_options)
         n.wrappers = {k: {k1: list(v1) for k1, v1 in v.items()} for k, v in self.wrappers.items()}
         n.object_patches = dict(self.object_patches)
+        n.callbacks = {k: {k1: list(v1) for k1, v1 in v.items()} for k, v in self.callbacks.items()}
         return n
+
+    def add_callback_with_key(self, kind, key, callback):
+        self.callbacks.setdefault(kind, {}).setdefault(key, []).append(callback)
+
+    def cleanup(self):
+        for group in self.callbacks.get("on_cleanup", {}).values():
+            for callback in group:
+                callback(self)
 
     def get_model_object(self, name):
         if name in self.object_patches:

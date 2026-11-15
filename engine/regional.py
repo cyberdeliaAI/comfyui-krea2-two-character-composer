@@ -29,11 +29,12 @@ import itertools
 import logging
 import math
 import re
+import weakref
 
 import torch
 import torch.nn.functional as F
 
-from comfy.patcher_extension import WrappersMP
+from comfy.patcher_extension import CallbacksMP, WrappersMP
 
 BUNDLE_KEY = "krea2_two_character_regional"
 CONSUMED_KEY = "krea2_two_character_regional_consumed"
@@ -51,6 +52,8 @@ class _Ctx:
         self.txtlen = 0
         self.imglen = 0
         self.txtlayers = -1
+        self.adapters = {}  # module path -> {uid: adapter} of the running bundle
+        self.cast = None    # (uid, path, device, dtype) -> cast LoRA weights
 
     def clear(self):
         self.token_masks = {}
@@ -58,6 +61,8 @@ class _Ctx:
         self.txtlen = 0
         self.imglen = 0
         self.txtlayers = -1
+        self.adapters = {}
+        self.cast = None
 
 
 CTX = _Ctx()
@@ -69,10 +74,38 @@ class _RunCache:
     transformer_options copies dicts and lists but passes other objects by
     reference, so this survives from one model call to the next."""
 
-    __slots__ = ("rt",)
+    __slots__ = ("rt", "adapters", "cast", "__weakref__")
 
     def __init__(self):
         self.rt = None
+        # Per-bundle LoRA adapters and their device casts. They live here, not
+        # on per-run module copies: ComfyUI's dynamic VRAM keeps per-module
+        # state (pinned RAM, VRAM allocations) and references the modules from
+        # model-wide pin stacks, so new module copies every run piled up.
+        self.adapters = {}
+        self.cast = {}
+
+    def release(self):
+        """Drop this run's GPU tensors (LoRA casts, masks); rebuilt on demand.
+
+        ComfyUI's default RAM-pressure cache keeps old composer outputs, and
+        with them this object, alive after a re-execution and frees them only
+        under host RAM pressure. Without this, each re-execution left the
+        previous run's GPU LoRA casts in VRAM."""
+        self.cast.clear()
+        self.rt = None
+
+
+_ACTIVE_CACHE = None  # weakref to the _RunCache that ran last
+
+
+def _activate(cache):
+    global _ACTIVE_CACHE
+    prev = _ACTIVE_CACHE() if _ACTIVE_CACHE is not None else None
+    if prev is not cache:
+        if prev is not None:
+            prev.release()
+        _ACTIVE_CACHE = weakref.ref(cache)
 
 
 # ---------------------------------------------------------------------------
@@ -214,12 +247,19 @@ class _RegionalLoRAMixin:
 
     def forward(self, x, *args, **kwargs):
         y = super().forward(x, *args, **kwargs)
-        adapters = getattr(self, "regional_adapters", None)
+        path = self.__dict__.get("_k2tc_path")
+        if path is not None:
+            adapters = CTX.adapters.get(path)
+        else:
+            adapters = getattr(self, "regional_adapters", None)
         tm = CTX.token_masks
         if not adapters or not tm or not torch.is_tensor(x) \
                 or x.ndim not in (3, 4):
             return y
-        cast = self.__dict__.setdefault("_k2b_cast", {})
+        if path is not None and CTX.cast is not None:
+            cast = CTX.cast
+        else:
+            cast = self.__dict__.setdefault("_k2b_cast", {})
         flat_x = None
         owns_output = False
         for uid, adapter in adapters.items():
@@ -230,7 +270,7 @@ class _RegionalLoRAMixin:
             if plan is None or (plan.indices is not None and plan.indices.numel() == 0):
                 continue
             kind, wa, wb, scale = adapter
-            ck = (uid, x.device, x.dtype)
+            ck = (uid, path, x.device, x.dtype)
             if ck not in cast:
                 cast[ck] = (wa.to(device=x.device, dtype=x.dtype),
                             wb.to(device=x.device, dtype=x.dtype))
@@ -313,6 +353,10 @@ def _patched_linear(base: torch.nn.Module) -> torch.nn.Module:
     `regional_adapters`, so model clones never interfere.
     """
     patched = copy.copy(base)
+    # The private copy path also supports a layer already used by a bundle.
+    # Its adapters/casts must remain local to this copy.
+    patched.__dict__.pop("_k2tc_path", None)
+    patched.__dict__.pop("_k2b_cast", None)
     if isinstance(base, _RegionalLoRAMixin):
         patched.regional_adapters = dict(getattr(base, "regional_adapters", {}))
     else:
@@ -321,8 +365,21 @@ def _patched_linear(base: torch.nn.Module) -> torch.nn.Module:
     return patched
 
 
+def _make_regional(mod: torch.nn.Module, path: str) -> torch.nn.Module:
+    """Swap the regional subclass onto the model's own Linear, in place.
+
+    The module object stays the same across runs, so ComfyUI's per-module
+    dynamic VRAM state (pins, VRAM staging) is reused instead of duplicated.
+    Without an active bundle the subclass just runs the original forward;
+    adapters are looked up from the active bundle instead of the shared module."""
+    if not isinstance(mod, _RegionalLoRAMixin):
+        mod.__class__ = _regional_class(mod.__class__)
+    mod.__dict__["_k2tc_path"] = path
+    return mod
+
+
 def _inject_lora(model_patcher, lora_sd: dict, uid: str, strength: float,
-                 unmaskable: str = "skip") -> int:
+                 unmaskable: str = "skip", adapters: dict | None = None) -> int:
     """Attach one LoRA (as adapter `uid`) onto the DiT block Linears.
 
     Keys that hit layers OUTSIDE the token sequence (tmlp/tproj timestep
@@ -363,20 +420,25 @@ def _inject_lora(model_patcher, lora_sd: dict, uid: str, strength: float,
                 skipped.append(key)
             continue
         full = "diffusion_model." + path
-        target = _patched_linear(model_patcher.get_model_object(full))
         if g["type"] == "lokr":
-            target.regional_adapters[uid] = (
+            adapter = (
                 "lokr", g["w1"], g["w2"],
                 float(strength) * float(g["alpha_scale"]),
             )
         else:
             rank = g["down"].shape[0]
             alpha = g.get("alpha", rank)
-            target.regional_adapters[uid] = (
+            adapter = (
                 "lora", g["down"], g["up"],
                 float(strength) * float(alpha) / float(rank),
             )
-        model_patcher.add_object_patch(full, target)
+        if adapters is None:  # legacy: per-call module copy + object patch
+            target = _patched_linear(model_patcher.get_model_object(full))
+            target.regional_adapters[uid] = adapter
+            model_patcher.add_object_patch(full, target)
+        else:
+            _make_regional(model_patcher.get_model_object(full), full)
+            adapters.setdefault(full, {})[uid] = adapter
         patched += 1
 
     if global_keys:
@@ -394,8 +456,8 @@ def _inject_lora(model_patcher, lora_sd: dict, uid: str, strength: float,
             logging.info(
                 "[Krea2TwoCharacter] lora '%s': %d timestep/embedding layers "
                 "skipped (e.g. %s) — they modulate the whole image and "
-                "can't be region-masked. Set unmaskable_layers to 'apply "
-                "globally' on Apply Regional to merge them.",
+                "can't be region-masked. The Composer skips these layers "
+                "to keep character LoRAs limited to their regions.",
                 uid, len(global_keys), list(global_keys)[:3])
     if skipped:
         logging.warning(
@@ -620,6 +682,7 @@ def _diffusion_wrapper(executor, x, timesteps, context, *args, **kwargs):
     # a key written into the bundle dict itself would be thrown away.
     ck = (h_, w_, bs, tuple(batch_rows), str(device), txtlen)
     cache = bundle["cache"]
+    _activate(cache)
     rt = cache.rt
     if rt is None or rt.get("key") != ck:
         rt = {"key": ck, "additive": {}, "token_masks": None, "token_plans": {},
@@ -739,6 +802,8 @@ def _diffusion_wrapper(executor, x, timesteps, context, *args, **kwargs):
     CTX.txtlen = txtlen
     CTX.imglen = imglen
     CTX.txtlayers = getattr(model, "txtlayers", -1)
+    CTX.adapters = cache.adapters
+    CTX.cast = cache.cast
     try:
         return executor(x, timesteps, context, *rest,
                         transformer_options=transformer_options, **kwargs)
@@ -803,6 +868,7 @@ def apply_regional(model, base, regions, *, restrict_img_attn,
     if not math.isfinite(base_strength) or base_strength <= 0:
         raise ValueError(f"{LOG} base strength must be above 0.")
     m = model.clone()
+    run_cache = _RunCache()
 
     combined, segments, txt_total, txt_full = layout_chunks(
         [(base["cond"], base.get("sidecar", 0))]
@@ -811,7 +877,8 @@ def apply_regional(model, base, regions, *, restrict_img_attn,
     lora_specs = []
     for entry in base_loras or ():
         uid = f"k2tc{next(_UID)}"
-        n = _inject_lora(m, entry["sd"], uid, entry["strength"])
+        n = _inject_lora(m, entry["sd"], uid, entry["strength"],
+                         adapters=run_cache.adapters)
         logging.info("%s base lora '%s': %d layers", LOG, entry["label"], n)
         lora_specs.append({"uid": uid, "weight": 1.0, "seg": None,
                            "mask_idx": None})
@@ -819,7 +886,8 @@ def apply_regional(model, base, regions, *, restrict_img_attn,
         for entry in region.get("loras") or ():
             uid = f"k2tc{next(_UID)}"
             n = _inject_lora(m, entry["sd"], uid, entry["strength"],
-                             unmaskable=unmaskable_layers)
+                             unmaskable=unmaskable_layers,
+                             adapters=run_cache.adapters)
             logging.info("%s region %d lora '%s': %d layers", LOG, ridx,
                          entry["label"], n)
             if n == 0:
@@ -864,10 +932,13 @@ def apply_regional(model, base, regions, *, restrict_img_attn,
         "release_text_sigma": release_text_sigma,
         "base_bias": 0.0 if base_strength == 1.0 else math.log(base_strength),
         "lora_feather_px": max(0.0, float(lora_feather_px or 0)),
-        "cache": _RunCache(),
+        "cache": run_cache,
     }
     to = m.model_options.setdefault("transformer_options", {})
     to[BUNDLE_KEY] = bundle
     m.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, BUNDLE_KEY,
                            _diffusion_wrapper)
+    # Free the GPU casts when sampling ends, so they never outlive a run.
+    m.add_callback_with_key(CallbacksMP.ON_CLEANUP, BUNDLE_KEY,
+                            lambda _patcher: run_cache.release())
     return m, [[combined, dict(base.get("extra") or {})]]

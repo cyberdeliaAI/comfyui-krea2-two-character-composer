@@ -14,7 +14,7 @@ The node shows a live layout preview and relabels its fields to match the chosen
 Optional **negative prompts** work at CFG 1 through the
 [NegPiP Prompt](https://github.com/cyberdeliaAI/comfyui-negpip-zimage) pack.
 
-**[Download 0.4.6](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/releases/tag/v0.4.6)** ·
+**[Download 0.4.7](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/releases/tag/v0.4.7)** ·
 **[Example workflow](example_workflows/two_characters.json)**
 
 The regional engine is included. You do not need to install ComfyUI-Krea2-Regional separately.
@@ -39,7 +39,7 @@ the regions; describe the intended character sizes in the prompts.
 ## Installation
 
 1. Use a recent ComfyUI with native Krea 2 support (the `krea2` CLIPLoader type).
-2. Unzip `comfyui-krea2-two-character-composer-0.4.6.zip` into `ComfyUI/custom_nodes`, or clone the repository there.
+2. Unzip `comfyui-krea2-two-character-composer-0.4.7.zip` into `ComfyUI/custom_nodes`, or clone the repository there.
    The folder should look like this, without an extra nested folder:
 
    ```text
@@ -266,6 +266,19 @@ so it also survives ComfyUI cache hits. Existing ports and sampling tensors are
 unchanged. The metadata extension is optional; generation works without it.
 
 ## Performance
+
+Version 0.4.7 reuses the model's layer objects when the Composer re-executes,
+for example after changing a character prompt or LoRA strength. This avoids
+creating new layer identities for ComfyUI's Dynamic VRAM and pinned-RAM state.
+Each cached Composer output owns its adapter settings; the shared layers read
+only the active output's settings during the regional forward pass.
+
+Converted LoRA weights and runtime masks are released at sampling cleanup and
+when another Composer cache becomes active. Reusing a cached output rebuilds
+these tensors on demand. This prevents older cached outputs from retaining
+those GPU tensors; it does not disable ComfyUI's normal model or CPU caches.
+The region boundaries and LoRA strengths are unchanged. End-to-end speed and
+memory savings depend on your hardware and workflow; no fixed speedup is promised.
 
 Version 0.4.2 skips LoRA calculations for tokens where that character's mask is
 zero. The selections and converted mask weights are reused across layers and

@@ -1,0 +1,4 @@
+# Runtime packages do not need development or CI files.
+tests/
+tools/
+.github/

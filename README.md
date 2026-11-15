@@ -14,7 +14,7 @@ The node shows a live layout preview and relabels its fields to match the chosen
 Optional **negative prompts** work at CFG 1 through the
 [NegPiP Prompt](https://github.com/cyberdeliaAI/comfyui-negpip-zimage) pack.
 
-**[Download 0.4.7](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/releases/tag/v0.4.7)** ·
+**[Download 0.4.8](https://github.com/cyberdeliaAI/comfyui-krea2-two-character-composer/releases/tag/v0.4.8)** ·
 **[Example workflow](example_workflows/two_characters.json)**
 
 The regional engine is included. You do not need to install ComfyUI-Krea2-Regional separately.
@@ -39,7 +39,7 @@ the regions; describe the intended character sizes in the prompts.
 ## Installation
 
 1. Use a recent ComfyUI with native Krea 2 support (the `krea2` CLIPLoader type).
-2. Unzip `comfyui-krea2-two-character-composer-0.4.7.zip` into `ComfyUI/custom_nodes`, or clone the repository there.
+2. Unzip `comfyui-krea2-two-character-composer-0.4.8.zip` into `ComfyUI/custom_nodes`, or clone the repository there.
    The folder should look like this, without an extra nested folder:
 
    ```text
@@ -305,6 +305,10 @@ This compares the old and optimized **adapter calculations only**, with matching
 masks and weights. It excludes the base model, attention, encoding and decoding;
 it does not measure total image generation time. CUDA inference quality and
 end-to-end generation speed still need to be checked on your actual workflow.
+
+Version 0.4.8 excludes tests, development tools and CI workflows from Registry
+packages using `.comfyignore`. These files remain in the repository and source ZIP;
+the generation code is the same as 0.4.7.
 
 ## Upgrading
 

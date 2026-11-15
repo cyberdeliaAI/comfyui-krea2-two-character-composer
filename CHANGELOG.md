@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.8
+
+### Packaging
+- Exclude tests, development tools and CI workflows from the Comfy Registry
+  package with `.comfyignore`. The Registry flagged 0.4.6 for the test helper's
+  `COMFYUI_PATH` and `NEGPIP_PATH` environment reads; those helpers are not used
+  by the installed node. Tests stay in the repository and source ZIP.
+- Include `.comfyignore` in the source ZIP so Registry packaging is reproducible.
+- Generation code and the memory-lifecycle fix are unchanged from 0.4.7.
+
 ## 0.4.7
 
 ### Fixed

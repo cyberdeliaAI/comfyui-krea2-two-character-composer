@@ -18,7 +18,7 @@ with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(path, Path("comfyui-krea2-two-character-composer") / path.relative_to(root))
 print(destination)
 source_destination = destination.with_name(destination.stem + "-source.zip")
-source_files = files + [root / ".gitignore"]
+source_files = files + [root / ".gitignore", root / ".comfyignore"]
 for directory in ("tests", "tools", ".github"):
     source_files.extend(path for path in (root / directory).rglob("*")
                         if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc")
